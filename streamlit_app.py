@@ -1,83 +1,150 @@
 import streamlit as st
 import pandas as pd
+import plotly.graph_objs as go
+from datetime import datetime
 
-st.set_page_config(page_title="Trading Tracker", layout="wide")
+st.set_page_config(page_title="Fund Dashboard", layout="wide")
 
-st.title("📊 Personal Trading Tracker")
+st.markdown("""
+    <h1 style='text-align: center; color: white;'>
+    📊 Alpha Trading Desk
+    </h1>
+""", unsafe_allow_html=True)
+
 
 # -------------------------
-# SESSION STORAGE
+# SESSION STATE
 # -------------------------
 if "trades" not in st.session_state:
     st.session_state.trades = []
 
 
 # -------------------------
-# ADD TRADE FORM
+# SIDEBAR - INPUT
 # -------------------------
-st.subheader("➕ Add Trade")
+st.sidebar.header("➕ New Trade Entry")
 
-with st.form("trade_form"):
-    ticker = st.text_input("Ticker (e.g. TSLA)")
-    buy_price = st.number_input("Buy Price", min_value=0.0)
-    sell_price = st.number_input("Sell Price", min_value=0.0)
-    quantity = st.number_input("Quantity", min_value=1, step=1)
-    notes = st.text_area("Notes")
+ticker = st.sidebar.text_input("Ticker")
+buy = st.sidebar.number_input("Buy Price", min_value=0.0)
+sell = st.sidebar.number_input("Sell Price", min_value=0.0)
+qty = st.sidebar.number_input("Quantity", min_value=1, step=1)
+date = st.sidebar.date_input("Date", value=datetime.today())
+notes = st.sidebar.text_area("Notes")
 
-    submitted = st.form_submit_button("Add Trade")
+if st.sidebar.button("Add Trade"):
+    pnl = (sell - buy) * qty
+    pnl_pct = ((sell - buy) / buy) * 100 if buy > 0 else 0
 
-    if submitted:
-        pnl = (sell_price - buy_price) * quantity
-        pnl_pct = ((sell_price - buy_price) / buy_price) * 100 if buy_price > 0 else 0
+    st.session_state.trades.append({
+        "Date": date,
+        "Ticker": ticker.upper(),
+        "Buy": buy,
+        "Sell": sell,
+        "Qty": qty,
+        "PnL": pnl,
+        "PnL %": pnl_pct,
+        "Notes": notes
+    })
 
-        st.session_state.trades.append({
-            "Ticker": ticker,
-            "Buy Price": buy_price,
-            "Sell Price": sell_price,
-            "Quantity": quantity,
-            "PnL $": pnl,
-            "PnL %": pnl_pct,
-            "Notes": notes
-        })
-
-        st.success("Trade added!")
+    st.sidebar.success("Trade added")
 
 
 # -------------------------
 # DATAFRAME
 # -------------------------
-st.subheader("📋 Trade History")
-
 df = pd.DataFrame(st.session_state.trades)
 
+# -------------------------
+# KPI ROW (HEDGE FUND STYLE)
+# -------------------------
+st.markdown("### 📌 Portfolio Overview")
+
 if df.empty:
-    st.warning("No trades yet.")
-else:
-    st.dataframe(df, use_container_width=True)
+    st.warning("No trades recorded yet.")
+    st.stop()
 
-    # -------------------------
-    # PERFORMANCE METRICS
-    # -------------------------
-    st.subheader("📈 Performance Summary")
+total_pnl = df["PnL"].sum()
+win_rate = (df["PnL"] > 0).mean() * 100
+best_trade = df["PnL"].max()
+worst_trade = df["PnL"].min()
+avg_trade = df["PnL"].mean()
 
-    total_pnl = df["PnL $"].sum()
-    win_rate = (df["PnL $"] > 0).mean() * 100
-    avg_win = df[df["PnL $"] > 0]["PnL $"].mean()
-    avg_loss = df[df["PnL $"] < 0]["PnL $"].mean()
+col1, col2, col3, col4, col5 = st.columns(5)
 
-    col1, col2, col3, col4 = st.columns(4)
-
-    col1.metric("Total PnL", f"${total_pnl:.2f}")
-    col2.metric("Win Rate", f"{win_rate:.1f}%")
-    col3.metric("Avg Win", f"${avg_win:.2f}" if pd.notna(avg_win) else "N/A")
-    col4.metric("Avg Loss", f"${avg_loss:.2f}" if pd.notna(avg_loss) else "N/A")
+col1.metric("Total PnL", f"${total_pnl:,.2f}")
+col2.metric("Win Rate", f"{win_rate:.1f}%")
+col3.metric("Best Trade", f"${best_trade:,.2f}")
+col4.metric("Worst Trade", f"${worst_trade:,.2f}")
+col5.metric("Avg Trade", f"${avg_trade:,.2f}")
 
 
 # -------------------------
-# RESET BUTTON
+# EQUITY CURVE
 # -------------------------
-st.subheader("⚠️ Reset")
+st.markdown("### 📈 Equity Curve")
 
-if st.button("Clear All Trades"):
+df_sorted = df.sort_values("Date")
+df_sorted["Cumulative PnL"] = df_sorted["PnL"].cumsum()
+
+fig = go.Figure()
+fig.add_trace(go.Scatter(
+    x=df_sorted["Date"],
+    y=df_sorted["Cumulative PnL"],
+    mode="lines",
+    name="Equity Curve"
+))
+
+fig.update_layout(
+    height=400,
+    template="plotly_dark",
+    margin=dict(l=20, r=20, t=20, b=20)
+)
+
+st.plotly_chart(fig, use_container_width=True)
+
+
+# -------------------------
+# TRADE TABLE (CLEAN LOOK)
+# -------------------------
+st.markdown("### 🧾 Trade Book")
+
+styled_df = df.copy()
+styled_df = styled_df.sort_values("Date", ascending=False)
+
+st.dataframe(
+    styled_df,
+    use_container_width=True,
+    height=300
+)
+
+
+# -------------------------
+# PERFORMANCE BY TICKER
+# -------------------------
+st.markdown("### 🎯 Performance by Asset")
+
+ticker_perf = df.groupby("Ticker")["PnL"].sum().sort_values()
+
+fig2 = go.Figure()
+fig2.add_trace(go.Bar(
+    x=ticker_perf.index,
+    y=ticker_perf.values
+))
+
+fig2.update_layout(
+    height=400,
+    template="plotly_dark",
+    margin=dict(l=20, r=20, t=20, b=20)
+)
+
+st.plotly_chart(fig2, use_container_width=True)
+
+
+# -------------------------
+# RESET
+# -------------------------
+st.markdown("### ⚠️ Risk Control")
+
+if st.button("Reset Portfolio"):
     st.session_state.trades = []
-    st.experimental_rerun()
+    st.rerun()
