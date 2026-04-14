@@ -39,8 +39,31 @@ def price_change(hist):
     if len(hist) < 2:
         return 0
     return ((hist["Close"].iloc[-1] - hist["Close"].iloc[0]) / hist["Close"].iloc[0]) * 100
+def impact_score(move):
+    score = 0
 
+    if abs(move) > 5:
+        score += 2
+    elif abs(move) > 2:
+        score += 1
+
+    return score
 rows = []
+rows.append({
+    "Ticker": ticker,
+    "Move %": round(move, 2),
+    "EPS Est": eps_est,
+    "EPS Actual": eps_actual,
+    "Impact Score": impact_score(move)
+})
+st.subheader("🚨 Opportunity Signals")
+
+for row in rows:
+    if row["Move %"] > 5 and row["EPS Est"] is not None:
+        st.success(f"{row['Ticker']} - STRONG MOMENTUM MOVE")
+    elif row["Move %"] < -3:
+        st.error(f"{row['Ticker']} - SELL PRESSURE")
+
 
 for ticker in WATCHLIST:
     hist = get_data(ticker)
