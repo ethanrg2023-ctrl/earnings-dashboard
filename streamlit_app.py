@@ -102,91 +102,143 @@ uploaded = st.file_uploader("Upload chart image", type=["png", "jpg", "jpeg"])
 
 
 def analyze_chart(image):
-    img = np.array(image.convert("L"))
+    import numpy as np
 
+    img = np.array(image.convert("L"))
     h, w = img.shape
 
-    # Trend
-    left = img[:, :w//2].mean()
-    right = img[:, w//2:].mean()
+    # -------------------------
+    # TREND (STRUCTURE BASED)
+    # -------------------------
+    thirds = np.array_split(img, 3, axis=1)
+    means = [t.mean() for t in thirds]
 
-    if right > left + 3:
+    if means[2] > means[1] > means[0]:
         trend = "Uptrend"
-    elif right < left - 3:
+    elif means[2] < means[1] < means[0]:
         trend = "Downtrend"
     else:
         trend = "Sideways"
 
-    # Volatility
+    # -------------------------
+    # VOLATILITY
+    # -------------------------
     vol_score = img.std()
     volatility = "High" if vol_score > 50 else "Low"
 
-    # Candle approx
+    # -------------------------
+    # CANDLE STRUCTURE (REAL LOGIC)
+    # -------------------------
     top = img[:h//3].mean()
     mid = img[h//3:2*h//3].mean()
     bot = img[2*h//3:].mean()
 
-    if abs(top - bot) < 5:
-        candle = "Doji"
-        meaning = "Indecision"
-    elif bot < mid < top:
-        candle = "Bullish"
-        meaning = "Buying pressure"
-    elif top < mid < bot:
-        candle = "Bearish"
-        meaning = "Selling pressure"
-    else:
-        candle = "Mixed"
-        meaning = "Unclear"
+    body_strength = abs(mid - (top + bot) / 2)
+    wick_upper = abs(top - mid)
+    wick_lower = abs(bot - mid)
 
-    # Strategy + grade
-    if trend == "Uptrend" and candle == "Bullish" and volatility == "High":
-        setup = "Momentum Breakout"
-        entry = "Buy pullback"
-        exit = "Trail stop"
+    # Detect candle type
+    if body_strength < 3:
+        candle = "Doji"
+        meaning = "Indecision — market has no clear direction"
+
+    elif wick_lower > wick_upper * 1.5:
+        candle = "Bullish Pin Bar"
+        meaning = "Buyers rejected lower prices (support holding)"
+
+    elif wick_upper > wick_lower * 1.5:
+        candle = "Bearish Pin Bar"
+        meaning = "Sellers rejected higher prices (resistance holding)"
+
+    elif mid > top and mid > bot:
+        candle = "Strong Bullish Candle"
+        meaning = "Aggressive buying — continuation likely"
+
+    elif mid < top and mid < bot:
+        candle = "Strong Bearish Candle"
+        meaning = "Aggressive selling — downside likely"
+
+    else:
+        candle = "Mixed Candle"
+        meaning = "No clear edge"
+
+    # -------------------------
+    # DECISION ENGINE
+    # -------------------------
+    if trend == "Uptrend" and "Bullish" in candle and volatility == "High":
+        setup = "Trend Continuation"
+        entry = "Buy pullback / breakout"
+        stop = "Below recent low"
+        target = "Next resistance"
+        risk = "Medium"
         grade = "A"
 
-    elif trend == "Downtrend" and candle == "Bearish":
+    elif trend == "Uptrend" and "Pin Bar" in candle:
+        setup = "Pullback Reversal"
+        entry = "Buy near support"
+        stop = "Below wick"
+        target = "Trend continuation"
+        risk = "Low"
+        grade = "A"
+
+    elif trend == "Downtrend" and "Bearish" in candle:
         setup = "Short Continuation"
         entry = "Sell rally"
-        exit = "Cover support"
+        stop = "Above recent high"
+        target = "Next support"
+        risk = "Medium"
         grade = "A"
 
     elif candle == "Doji":
         setup = "No Trade"
-        entry = "Wait"
-        exit = "-"
+        entry = "Wait for confirmation"
+        stop = "-"
+        target = "-"
+        risk = "High"
         grade = "F"
 
     else:
         setup = "Weak Setup"
-        entry = "Small size"
-        exit = "Tight stop"
+        entry = "Reduce size"
+        stop = "Tight stop"
+        target = "Small move"
+        risk = "High"
         grade = "C"
 
-    return trend, volatility, candle, meaning, setup, entry, exit, grade
+    return {
+        "trend": trend,
+        "volatility": volatility,
+        "candle": candle,
+        "meaning": meaning,
+        "setup": setup,
+        "entry": entry,
+        "stop": stop,
+        "target": target,
+        "risk": risk,
+        "grade": grade
+    }
+    result = analyze_chart(img)
 
+st.markdown("### 🧠 AI Trading Analysis")
 
-if uploaded:
-    img = Image.open(uploaded)
-    st.image(img, use_container_width=True)
+c1, c2, c3 = st.columns(3)
+c1.metric("Trend", result["trend"])
+c2.metric("Volatility", result["volatility"])
+c3.metric("Grade", result["grade"])
 
-    trend, vol, candle, meaning, setup, entry, exit, grade = analyze_chart(img)
+st.markdown("### 🕯️ Candle Insight")
+st.info(f"{result['candle']} → {result['meaning']}")
 
-    st.markdown("### 🧠 Analysis")
+st.markdown("### 🎯 Trade Plan")
+st.success(f"Entry: {result['entry']}")
+st.warning(f"Stop: {result['stop']}")
+st.error(f"Target: {result['target']}")
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Trend", trend)
-    c2.metric("Volatility", vol)
-    c3.metric("Grade", grade)
+st.markdown("### ⚠️ Risk")
+st.write(result["risk"])
 
-    st.info(f"{candle} → {meaning}")
-
-    st.success(f"Entry: {entry}")
-    st.error(f"Exit: {exit}")
-
-    st.write("Setup:", setup)
-
+st.markdown("### 📊 Setup")
+st.write(result["setup"])
 # -------------------------
 # ⚡ SCANNER
 # -------------------------
