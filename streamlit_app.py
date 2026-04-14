@@ -22,19 +22,7 @@ def get_earnings(ticker):
         return eps_est, eps_actual
     except:
         return None, None
-def get_earnings(ticker):
-    stock = yf.Ticker(ticker)
 
-    # Better fallback approach
-    try:
-        info = stock.info
-
-        eps_est = info.get("forwardEps", None)
-        eps_actual = info.get("trailingEps", None)
-
-        return eps_est, eps_actual
-    except:
-        return None, None
 def price_change(hist):
     if len(hist) < 2:
         return 0
@@ -49,13 +37,25 @@ def impact_score(move):
 
     return score
 rows = []
-rows.append({
-    "Ticker": ticker,
-    "Move %": round(move, 2),
-    "EPS Est": eps_est,
-    "EPS Actual": eps_actual,
-    "Impact Score": impact_score(move)
-})
+rows = []
+
+for ticker in WATCHLIST:
+    hist = get_data(ticker)
+    eps_est, eps_actual = get_earnings(ticker)
+    move = price_change(hist)
+
+    surprise = None
+    if eps_actual and eps_est:
+        surprise = eps_actual - eps_est
+
+    rows.append({
+        "Ticker": ticker,
+        "Move %": round(move, 2),
+        "EPS Est": eps_est,
+        "EPS Actual": eps_actual,
+        "Surprise": surprise,
+        "Impact Score": impact_score(move)
+    })
 st.subheader("🚨 Opportunity Signals")
 
 for row in rows:
@@ -99,7 +99,5 @@ st.plotly_chart(fig, use_container_width=True)
 
 st.markdown("### 🚨 Signals")
 for row in rows:
-    if row["Surprise"] and row["Move %"] > 3:
-        st.success(f"{row['Ticker']} showing strong momentum")
-    elif row["Move %"] < -3:
-        st.error(f"{row['Ticker']} dropping hard")
+    if row["Surprise"] and row["Move %"] > 2:
+        st.success(f"{row['Ticker']} - Earnings surprise + momentum")
