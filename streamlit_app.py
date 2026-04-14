@@ -1,142 +1,83 @@
 import streamlit as st
-import yfinance as yf
 import pandas as pd
-import plotly.graph_objs as go
 
-st.set_page_config(page_title="Trading Dashboard", layout="wide")
+st.set_page_config(page_title="Trading Tracker", layout="wide")
 
-WATCHLIST = ["CAR", "TSLA", "NVDA", "AAPL", "GC=F", "SI=F", "^AXJO", "BHP.AX"]
+st.title("📊 Personal Trading Tracker")
 
-st.title("📊 Earnings Momentum Dashboard")
+# -------------------------
+# SESSION STORAGE
+# -------------------------
+if "trades" not in st.session_state:
+    st.session_state.trades = []
 
 
 # -------------------------
-# CACHE DATA (IMPORTANT)
+# ADD TRADE FORM
 # -------------------------
-@st.cache_data(ttl=300)
-def get_data(ticker):
-    try:
-        stock = yf.Ticker(ticker)
-        hist = stock.history(period="1d", interval="5m")
-        return hist
-    except:
-        return pd.DataFrame()
+st.subheader("➕ Add Trade")
 
+with st.form("trade_form"):
+    ticker = st.text_input("Ticker (e.g. TSLA)")
+    buy_price = st.number_input("Buy Price", min_value=0.0)
+    sell_price = st.number_input("Sell Price", min_value=0.0)
+    quantity = st.number_input("Quantity", min_value=1, step=1)
+    notes = st.text_area("Notes")
 
-@st.cache_data(ttl=300)
-def get_earnings(ticker):
-    try:
-        stock = yf.Ticker(ticker)
-        cal = stock.calendar
-        if cal is None or cal.empty:
-            return None, None
+    submitted = st.form_submit_button("Add Trade")
 
-        eps_est = None
-        eps_actual = None
+    if submitted:
+        pnl = (sell_price - buy_price) * quantity
+        pnl_pct = ((sell_price - buy_price) / buy_price) * 100 if buy_price > 0 else 0
 
-        if "EPS Estimate" in cal.index:
-            eps_est = cal.loc["EPS Estimate"][0]
+        st.session_state.trades.append({
+            "Ticker": ticker,
+            "Buy Price": buy_price,
+            "Sell Price": sell_price,
+            "Quantity": quantity,
+            "PnL $": pnl,
+            "PnL %": pnl_pct,
+            "Notes": notes
+        })
 
-        if "Reported EPS" in cal.index:
-            eps_actual = cal.loc["Reported EPS"][0]
-
-        return eps_est, eps_actual
-
-    except:
-        return None, None
+        st.success("Trade added!")
 
 
 # -------------------------
-# HELPERS
+# DATAFRAME
 # -------------------------
-def price_change(hist):
-    if hist is None or hist.empty or len(hist) < 2:
-        return 0
+st.subheader("📋 Trade History")
 
-    start = hist["Close"].iloc[0]
-    end = hist["Close"].iloc[-1]
+df = pd.DataFrame(st.session_state.trades)
 
-    if start == 0:
-        return 0
-
-    return ((end - start) / start) * 100
-
-
-def impact_score(move):
-    if abs(move) > 5:
-        return 2
-    elif abs(move) > 2:
-        return 1
-    return 0
-
-
-# -------------------------
-# BUILD DATA (ONLY ONCE)
-# -------------------------
-rows = []
-
-for ticker in WATCHLIST:
-    hist = get_data(ticker)
-    eps_est, eps_actual = get_earnings(ticker)
-    move = price_change(hist)
-
-    surprise = None
-    if eps_est is not None and eps_actual is not None:
-        surprise = eps_actual - eps_est
-
-    rows.append({
-        "Ticker": ticker,
-        "Move %": round(move, 2),
-        "EPS Est": eps_est,
-        "EPS Actual": eps_actual,
-        "Surprise": surprise,
-        "Impact Score": impact_score(move)
-    })
-
-
-df = pd.DataFrame(rows)
-
-
-# -------------------------
-# SIGNALS
-# -------------------------
-st.subheader("🚨 Opportunity Signals")
-
-for row in rows:
-    if row["Move %"] > 5:
-        st.success(f"{row['Ticker']} - STRONG MOMENTUM MOVE")
-    elif row["Move %"] < -3:
-        st.error(f"{row['Ticker']} - SELL PRESSURE")
-
-
-# -------------------------
-# TABLE
-# -------------------------
-st.subheader("📋 Market Overview")
-st.dataframe(df, use_container_width=True)
-
-
-# -------------------------
-# CHART
-# -------------------------
-st.subheader("📈 Chart")
-selected = st.selectbox("Choose stock", WATCHLIST)
-
-hist = get_data(selected)
-
-if hist is not None and not hist.empty:
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=hist.index, y=hist["Close"], name="Close"))
-    st.plotly_chart(fig, use_container_width=True)
+if df.empty:
+    st.warning("No trades yet.")
 else:
-    st.warning("No data available for this ticker")
+    st.dataframe(df, use_container_width=True)
+
+    # -------------------------
+    # PERFORMANCE METRICS
+    # -------------------------
+    st.subheader("📈 Performance Summary")
+
+    total_pnl = df["PnL $"].sum()
+    win_rate = (df["PnL $"] > 0).mean() * 100
+    avg_win = df[df["PnL $"] > 0]["PnL $"].mean()
+    avg_loss = df[df["PnL $"] < 0]["PnL $"].mean()
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    col1.metric("Total PnL", f"${total_pnl:.2f}")
+    col2.metric("Win Rate", f"{win_rate:.1f}%")
+    col3.metric("Avg Win", f"${avg_win:.2f}" if pd.notna(avg_win) else "N/A")
+    col4.metric("Avg Loss", f"${avg_loss:.2f}" if pd.notna(avg_loss) else "N/A")
 
 
 # -------------------------
-# FINAL SIGNALS
+# RESET BUTTON
 # -------------------------
-st.markdown("### 🚨 Earnings + Momentum Signals")
+st.subheader("⚠️ Reset")
 
-for row in rows:
-    if row["Surprise"] is not None and row["Move %"] > 2:
-        st.success(f"{row['Ticker']} - Earnings surprise + momentum")
+if st.button("Clear All Trades"):
+    st.session_state.trades = []
+    st.experimental_rerun()
