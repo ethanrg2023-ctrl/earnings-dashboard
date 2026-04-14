@@ -5,7 +5,7 @@ import plotly.graph_objs as go
 
 st.set_page_config(page_title="Trading Dashboard", layout="wide")
 
-WATCHLIST = ["CAR", "TSLA", "NVDA", "AAPL", "GOLD", "SILVER", "ASX", "BHP"]
+WATCHLIST = ["CAR", "TSLA", "NVDA", "AAPL", "GC=F", "SI=F", "^AXJO", "BHP.AX"]
 
 st.title("📊 Earnings Momentum Dashboard")
 
@@ -37,7 +37,6 @@ def impact_score(move):
 
     return score
 rows = []
-rows = []
 
 for ticker in WATCHLIST:
     hist = get_data(ticker)
@@ -45,7 +44,7 @@ for ticker in WATCHLIST:
     move = price_change(hist)
 
     surprise = None
-    if eps_actual and eps_est:
+    if eps_est is not None and eps_actual is not None:
         surprise = eps_actual - eps_est
 
     rows.append({
