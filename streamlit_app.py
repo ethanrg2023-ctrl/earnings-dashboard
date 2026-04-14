@@ -1,6 +1,3 @@
-# =====================================================
-# 📦 IMPORTS
-# =====================================================
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -8,36 +5,31 @@ import yfinance as yf
 from PIL import Image
 
 # =====================================================
-# ⚙️ CONFIG
+# CONFIG
 # =====================================================
-st.set_page_config(page_title="SMC Engine PRO", layout="wide")
-st.title("🏦 Institutional SMC Execution Engine (Stable Version)")
+st.set_page_config(page_title="SMC Trading System", layout="wide")
+st.title("🏦 Institutional SMC Trading System (Fixed)")
 
 # =====================================================
-# 🧠 SAFE DATA LOADER (NO CRASHES)
+# SESSION STATE (TRADE JOURNAL RESTORED)
 # =====================================================
-def get_ohlc(ticker, period="5d", interval="15m"):
-    try:
-        df = yf.download(ticker, period=period, interval=interval, progress=False)
+if "trades" not in st.session_state:
+    st.session_state.trades = []
 
-        if df is None or df.empty:
-            return pd.DataFrame()
-
-        required = {"Open", "High", "Low", "Close"}
-        if not required.issubset(df.columns):
-            return pd.DataFrame()
-
-        df = df.dropna()
-        return df
-
-    except Exception:
+# =====================================================
+# DATA
+# =====================================================
+def get_ohlc(ticker):
+    df = yf.download(ticker, period="5d", interval="15m", progress=False)
+    if df is None or df.empty:
         return pd.DataFrame()
+    return df.dropna()
 
 # =====================================================
-# 🧠 SMC ENGINE (BOS / CHoCH SAFE)
+# SMC ENGINE
 # =====================================================
 def smc_engine(df):
-    if df.empty or len(df) < 5:
+    if df.empty:
         return {"trend": "No Data", "structure": []}
 
     highs = df["High"].values
@@ -70,43 +62,33 @@ def smc_engine(df):
     return {"trend": trend, "structure": structure}
 
 # =====================================================
-# 🧱 SUPPORT / RESISTANCE (NO EMPTY CRASH)
+# SUPPORT / RESISTANCE
 # =====================================================
 def support_resistance(df):
-    if df.empty or len(df) < 10:
+    if df.empty:
         return {"support": [], "resistance": []}
 
     highs = df["High"].values
     lows = df["Low"].values
 
-    res = []
-    sup = []
+    res, sup = [], []
 
-    window = 3
-
-    for i in range(window, len(df) - window):
-        local_high = highs[i-window:i+window]
-        local_low = lows[i-window:i+window]
-
-        if highs[i] == np.max(local_high):
-            res.append(float(highs[i]))
-
-        if lows[i] == np.min(local_low):
-            sup.append(float(lows[i]))
-
-    res = sorted(list(set(res)))
-    sup = sorted(list(set(sup)))
+    for i in range(3, len(df)-3):
+        if highs[i] == np.max(highs[i-3:i+3]):
+            res.append(highs[i])
+        if lows[i] == np.min(lows[i-3:i+3]):
+            sup.append(lows[i])
 
     return {
-        "resistance": res[-5:] if res else [],
-        "support": sup[:5] if sup else []
+        "resistance": sorted(set(res))[-5:],
+        "support": sorted(set(sup))[:5]
     }
 
 # =====================================================
-# 🟦 FVG ENGINE (SAFE)
+# FVG
 # =====================================================
 def detect_fvg(df):
-    if df.empty or len(df) < 3:
+    if df.empty:
         return {"bullish_fvg": [], "bearish_fvg": []}
 
     highs = df["High"].values
@@ -115,22 +97,15 @@ def detect_fvg(df):
     bull, bear = [], []
 
     for i in range(2, len(df)):
-        try:
-            if lows[i] > highs[i-2]:
-                bull.append((float(highs[i-2]), float(lows[i])))
+        if lows[i] > highs[i-2]:
+            bull.append((highs[i-2], lows[i]))
+        if highs[i] < lows[i-2]:
+            bear.append((lows[i-2], highs[i]))
 
-            if highs[i] < lows[i-2]:
-                bear.append((float(lows[i-2]), float(highs[i])))
-        except:
-            continue
-
-    return {
-        "bullish_fvg": bull[-5:],
-        "bearish_fvg": bear[-5:]
-    }
+    return {"bullish_fvg": bull[-5:], "bearish_fvg": bear[-5:]}
 
 # =====================================================
-# 🎯 AUTO ENTRY ENGINE (SAFE)
+# AUTO ENTRY
 # =====================================================
 def auto_entry(df, smc, sr):
     if df.empty:
@@ -138,42 +113,34 @@ def auto_entry(df, smc, sr):
 
     last = df["Close"].iloc[-1]
 
-    signal = "NO TRADE"
-    entry = stop = target = None
-
     if smc["trend"] in ["Bullish", "Reversal Bullish"] and sr["support"]:
-        signal = "BUY"
-        entry = float(last)
-        stop = float(sr["support"][-1])
-        target = float(sr["resistance"][-1]) if sr["resistance"] else float(last * 1.02)
+        return {
+            "signal": "BUY",
+            "entry": float(last),
+            "stop": float(sr["support"][-1]),
+            "target": float(sr["resistance"][-1]) if sr["resistance"] else float(last*1.02)
+        }
 
-    elif smc["trend"] in ["Bearish", "Reversal Bearish"] and sr["resistance"]:
-        signal = "SELL"
-        entry = float(last)
-        stop = float(sr["resistance"][-1])
-        target = float(sr["support"][-1]) if sr["support"] else float(last * 0.98)
+    if smc["trend"] in ["Bearish", "Reversal Bearish"] and sr["resistance"]:
+        return {
+            "signal": "SELL",
+            "entry": float(last),
+            "stop": float(sr["resistance"][-1]),
+            "target": float(sr["support"][-1]) if sr["support"] else float(last*0.98)
+        }
 
-    return {
-        "signal": signal,
-        "entry": entry,
-        "stop": stop,
-        "target": target
-    }
+    return {"signal": "NO TRADE", "entry": None, "stop": None, "target": None}
 
 # =====================================================
-# 🧠 WIN PROBABILITY (SAFE)
+# WIN PROBABILITY
 # =====================================================
 def win_probability(smc, sr, fvg, signal):
     score = 50
 
-    if smc["trend"] == "Bullish":
+    if "Bullish" in smc["trend"]:
         score += 15
-    elif smc["trend"] == "Bearish":
+    elif "Bearish" in smc["trend"]:
         score += 15
-    elif "Reversal" in smc["trend"]:
-        score += 20
-    else:
-        score -= 10
 
     if sr["support"] and sr["resistance"]:
         score += 10
@@ -184,46 +151,64 @@ def win_probability(smc, sr, fvg, signal):
     if signal in ["BUY", "SELL"]:
         score += 10
     else:
-        score -= 20
+        score -= 15
 
     return max(5, min(95, score))
 
 # =====================================================
-# 🏷 GRADING ENGINE
+# GRADING
 # =====================================================
 def grade(prob):
     if prob >= 80:
-        return "A+ Institutional"
+        return "A+"
     elif prob >= 70:
-        return "A Quality"
+        return "A"
     elif prob >= 60:
-        return "B Setup"
+        return "B"
     elif prob >= 50:
-        return "C Weak"
-    else:
-        return "F No Trade"
+        return "C"
+    return "F"
 
 # =====================================================
-# 📸 IMAGE ANALYSER (SAFE)
+# 📒 TRADE JOURNAL (RESTORED PROPERLY)
 # =====================================================
-def analyze_chart(image):
-    img = np.array(image.convert("L"))
+st.sidebar.header("📒 Trade Journal")
 
-    if img.size == 0:
-        return {"trend": "No Data", "bias": "None"}
+t_ticker = st.sidebar.text_input("Ticker")
+buy = st.sidebar.number_input("Buy", 0.0)
+sell = st.sidebar.number_input("Sell", 0.0)
+qty = st.sidebar.number_input("Qty", 1)
+date = st.sidebar.date_input("Date")
 
-    h, w = img.shape
+if st.sidebar.button("Add Trade"):
+    pnl = (sell - buy) * qty if buy > 0 else 0
 
-    left = img[:, :max(1, w//3)].mean()
-    right = img[:, 2*max(1, w//3):].mean()
-
-    trend = "Uptrend" if right > left else "Downtrend"
-    bias = "Bullish" if img[2*h//3:].mean() < img[:h//3].mean() else "Bearish"
-
-    return {"visual_trend": trend, "bias": bias}
+    st.session_state.trades.append({
+        "Date": date,
+        "Ticker": t_ticker,
+        "Buy": buy,
+        "Sell": sell,
+        "Qty": qty,
+        "PnL": pnl
+    })
 
 # =====================================================
-# 📊 UI
+# TRADE TABLE + PnL
+# =====================================================
+df_trades = pd.DataFrame(st.session_state.trades)
+
+st.markdown("## 📊 Trade Performance")
+
+if not df_trades.empty:
+    df_trades["Cumulative"] = df_trades["PnL"].cumsum()
+
+    st.metric("Total PnL", f"${df_trades['PnL'].sum():.2f}")
+    st.metric("Win Rate", f"{(df_trades['PnL'] > 0).mean()*100:.1f}%")
+
+    st.dataframe(df_trades)
+
+# =====================================================
+# MARKET ENGINE
 # =====================================================
 asset = st.text_input("Enter Asset (AAPL, TSLA, NVDA)")
 
@@ -231,7 +216,7 @@ if asset:
     df = get_ohlc(asset)
 
     if df.empty:
-        st.error("No data found. Try another ticker.")
+        st.error("No market data found.")
         st.stop()
 
     smc = smc_engine(df)
@@ -240,36 +225,16 @@ if asset:
     trade = auto_entry(df, smc, sr)
 
     prob = win_probability(smc, sr, fvg, trade["signal"])
-    grade = grade(prob)
+    g = grade(prob)
 
+    # =====================
+    # OUTPUT
+    # =====================
     st.metric("Trend", smc["trend"])
     st.metric("Signal", trade["signal"])
     st.metric("Win Probability", f"{prob:.1f}%")
-    st.metric("Grade", grade)
+    st.metric("Grade", g)
 
     st.write("Entry:", trade["entry"])
     st.write("Stop:", trade["stop"])
     st.write("Target:", trade["target"])
-
-    st.markdown("### Support")
-    st.write(sr["support"])
-
-    st.markdown("### Resistance")
-    st.write(sr["resistance"])
-
-    st.markdown("### FVG")
-    st.write(fvg)
-
-# =====================================================
-# 📸 IMAGE ANALYSIS
-# =====================================================
-st.markdown("### 📸 Chart Analyzer")
-
-uploaded = st.file_uploader("Upload Chart", type=["png", "jpg", "jpeg"])
-
-if uploaded:
-    img = Image.open(uploaded)
-    result = analyze_chart(img)
-
-    st.write("Visual Trend:", result["visual_trend"])
-    st.write("Bias:", result["bias"])
