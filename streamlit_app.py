@@ -36,6 +36,7 @@ def impact_score(move):
         score += 1
 
     return score
+
 rows = []
 
 for ticker in WATCHLIST:
@@ -55,6 +56,7 @@ for ticker in WATCHLIST:
         "Surprise": surprise,
         "Impact Score": impact_score(move)
     })
+    
 st.subheader("🚨 Opportunity Signals")
 
 for row in rows:
@@ -62,24 +64,6 @@ for row in rows:
         st.success(f"{row['Ticker']} - STRONG MOMENTUM MOVE")
     elif row["Move %"] < -3:
         st.error(f"{row['Ticker']} - SELL PRESSURE")
-
-
-for ticker in WATCHLIST:
-    hist = get_data(ticker)
-    eps_est, eps_actual = get_earnings(ticker)
-    move = price_change(hist)
-
-    surprise = None
-    if eps_actual and eps_est:
-        surprise = eps_actual - eps_est
-
-    rows.append({
-        "Ticker": ticker,
-        "Move %": round(move, 2),
-        "EPS Est": eps_est,
-        "EPS Actual": eps_actual,
-        "Surprise": surprise
-    })
 
 df = pd.DataFrame(rows)
 
@@ -97,6 +81,9 @@ fig.add_trace(go.Scatter(x=hist.index, y=hist["Close"]))
 st.plotly_chart(fig, use_container_width=True)
 
 st.markdown("### 🚨 Signals")
+
 for row in rows:
-    if row["Surprise"] and row["Move %"] > 2:
+    if row["Move %"] > 2 and row["Surprise"] is not None:
         st.success(f"{row['Ticker']} - Earnings surprise + momentum")
+    elif row["Move %"] < -3:
+        st.error(f"{row['Ticker']} - SELL PRESSURE")
