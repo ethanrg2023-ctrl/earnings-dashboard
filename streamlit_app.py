@@ -4,14 +4,16 @@ import plotly.graph_objs as go
 from datetime import datetime
 from PIL import Image
 import numpy as np
-import cv2
-
-st.set_page_config(page_title="Alpha Trading Desk AI", layout="wide")
-
-st.markdown("<h1 style='text-align:center;'>📊 Alpha Trading Desk AI</h1>", unsafe_allow_html=True)
 
 # -------------------------
-# SESSION STATE
+# CONFIG
+# -------------------------
+st.set_page_config(page_title="Alpha Trading Desk", layout="wide")
+
+st.markdown("<h1 style='text-align:center;'>📊 Alpha Trading Desk</h1>", unsafe_allow_html=True)
+
+# -------------------------
+# STATE
 # -------------------------
 if "trades" not in st.session_state:
     st.session_state.trades = []
@@ -30,8 +32,12 @@ strategy = st.sidebar.selectbox("Strategy", ["Breakout", "Momentum", "Reversal",
 notes = st.sidebar.text_area("Notes")
 
 if st.sidebar.button("Add Trade"):
-    pnl = (sell - buy) * qty
-    pnl_pct = ((sell - buy) / buy) * 100 if buy > 0 else 0
+    if buy > 0:
+        pnl = (sell - buy) * qty
+        pnl_pct = ((sell - buy) / buy) * 100
+    else:
+        pnl = 0
+        pnl_pct = 0
 
     st.session_state.trades.append({
         "Date": pd.to_datetime(date),
@@ -54,75 +60,71 @@ df = pd.DataFrame(st.session_state.trades)
 
 st.markdown("### 📌 Portfolio Overview")
 
-if df.empty:
-    st.warning("No trades recorded yet.")
-else:
+if not df.empty:
     df = df.sort_values("Date")
     df["Cumulative"] = df["PnL"].cumsum()
 
     total_pnl = df["PnL"].sum()
     win_rate = (df["PnL"] > 0).mean() * 100
-    best_trade = df["PnL"].max()
-    worst_trade = df["PnL"].min()
-    avg_trade = df["PnL"].mean()
+    best = df["PnL"].max()
+    worst = df["PnL"].min()
+    avg = df["PnL"].mean()
 
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Total PnL", f"${total_pnl:,.2f}")
     c2.metric("Win Rate", f"{win_rate:.1f}%")
-    c3.metric("Best Trade", f"${best_trade:,.2f}")
-    c4.metric("Worst Trade", f"${worst_trade:,.2f}")
-    c5.metric("Avg Trade", f"${avg_trade:,.2f}")
+    c3.metric("Best", f"${best:,.2f}")
+    c4.metric("Worst", f"${worst:,.2f}")
+    c5.metric("Avg", f"${avg:,.2f}")
 
-    # -------------------------
-    # EQUITY CURVE
-    # -------------------------
+    # Equity curve
     st.markdown("### 📈 Equity Curve")
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=df["Date"], y=df["Cumulative"], name="Equity"))
-
     fig.update_layout(template="plotly_dark", height=400)
+
     st.plotly_chart(fig, use_container_width=True)
 
-    # -------------------------
-    # TRADE TABLE
-    # -------------------------
+    # Table
     st.markdown("### 🧾 Trade Log")
     st.dataframe(df.sort_values("Date", ascending=False), use_container_width=True)
 
-# -------------------------
-# 📸 SCREENSHOT ANALYZER
-# -------------------------
-st.markdown("### 📸 Chart Screenshot Analysis")
+else:
+    st.warning("No trades yet.")
 
-uploaded_file = st.file_uploader("Upload chart image", type=["png", "jpg", "jpeg"])
+# -------------------------
+# 📸 SCREENSHOT ANALYSIS (NO CV2)
+# -------------------------
+st.markdown("### 📸 Chart Analysis")
+
+uploaded = st.file_uploader("Upload chart image", type=["png", "jpg", "jpeg"])
+
 
 def analyze_chart(image):
-    img = np.array(image)
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    img = np.array(image.convert("L"))
 
-    h, w = gray.shape
+    h, w = img.shape
 
     # Trend
-    left = gray[:, :w//2].mean()
-    right = gray[:, w//2:].mean()
+    left = img[:, :w//2].mean()
+    right = img[:, w//2:].mean()
 
-    if right > left + 5:
+    if right > left + 3:
         trend = "Uptrend"
-    elif right < left - 5:
+    elif right < left - 3:
         trend = "Downtrend"
     else:
         trend = "Sideways"
 
     # Volatility
-    edges = cv2.Canny(gray, 50, 150)
-    edge_density = edges.mean()
-    volatility = "High" if edge_density > 25 else "Low"
+    vol_score = img.std()
+    volatility = "High" if vol_score > 50 else "Low"
 
-    # Candle structure (approx)
-    top = gray[:h//3, :].mean()
-    mid = gray[h//3:2*h//3, :].mean()
-    bot = gray[2*h//3:, :].mean()
+    # Candle approx
+    top = img[:h//3].mean()
+    mid = img[h//3:2*h//3].mean()
+    bot = img[2*h//3:].mean()
 
     if abs(top - bot) < 5:
         candle = "Doji"
@@ -133,67 +135,57 @@ def analyze_chart(image):
     elif top < mid < bot:
         candle = "Bearish"
         meaning = "Selling pressure"
-    elif top > mid and bot > mid:
-        candle = "Rejection Wick"
-        meaning = "Potential reversal"
     else:
         candle = "Mixed"
         meaning = "Unclear"
 
-    # Strategy + grading
+    # Strategy + grade
     if trend == "Uptrend" and candle == "Bullish" and volatility == "High":
         setup = "Momentum Breakout"
         entry = "Buy pullback"
         exit = "Trail stop"
         grade = "A"
+
     elif trend == "Downtrend" and candle == "Bearish":
         setup = "Short Continuation"
         entry = "Sell rally"
         exit = "Cover support"
         grade = "A"
+
     elif candle == "Doji":
         setup = "No Trade"
         entry = "Wait"
         exit = "-"
         grade = "F"
+
     else:
         setup = "Weak Setup"
         entry = "Small size"
         exit = "Tight stop"
         grade = "C"
 
-    return {
-        "trend": trend,
-        "volatility": volatility,
-        "candle": candle,
-        "meaning": meaning,
-        "setup": setup,
-        "entry": entry,
-        "exit": exit,
-        "grade": grade
-    }
+    return trend, volatility, candle, meaning, setup, entry, exit, grade
 
-if uploaded_file:
-    image = Image.open(uploaded_file)
-    st.image(image, use_container_width=True)
 
-    result = analyze_chart(image)
+if uploaded:
+    img = Image.open(uploaded)
+    st.image(img, use_container_width=True)
 
-    st.markdown("### 🧠 AI Market Read")
+    trend, vol, candle, meaning, setup, entry, exit, grade = analyze_chart(img)
+
+    st.markdown("### 🧠 Analysis")
 
     c1, c2, c3 = st.columns(3)
-    c1.metric("Trend", result["trend"])
-    c2.metric("Volatility", result["volatility"])
-    c3.metric("Grade", result["grade"])
+    c1.metric("Trend", trend)
+    c2.metric("Volatility", vol)
+    c3.metric("Grade", grade)
 
-    st.markdown("### 🕯️ Candle")
-    st.info(f"{result['candle']} → {result['meaning']}")
+    st.info(f"{candle} → {meaning}")
 
-    st.markdown("### 🎯 Trade Plan")
-    st.success(f"Entry: {result['entry']}")
-    st.error(f"Exit: {result['exit']}")
+    st.success(f"Entry: {entry}")
+    st.error(f"Exit: {exit}")
 
-    st.write("Setup:", result["setup"])
+    st.write("Setup:", setup)
 
 # -------------------------
 # ⚡ SCANNER
@@ -203,11 +195,12 @@ st.markdown("### ⚡ Trade Scanner")
 c1, c2, c3 = st.columns(3)
 
 move = c1.slider("Price Change %", -10.0, 10.0, 0.0)
-range_pct = c2.slider("Candle Range %", 0.0, 10.0, 0.0)
+range_pct = c2.slider("Range %", 0.0, 10.0, 0.0)
 volume = c3.checkbox("Volume Spike")
 
-def scan_logic(move, range_pct, volume):
-    if move > 3 and range_pct > 2 and volume:
+
+def scan(move, rng, vol):
+    if move > 3 and rng > 2 and vol:
         return "🔥 Breakout"
     elif move > 2:
         return "📈 Momentum"
@@ -215,10 +208,11 @@ def scan_logic(move, range_pct, volume):
         return "⚠️ Sell Pressure"
     return "No Setup"
 
-st.info(scan_logic(move, range_pct, volume))
+
+st.info(scan(move, range_pct, volume))
 
 # -------------------------
-# EXPORT / RESET
+# EXPORT + RESET
 # -------------------------
 if not df.empty:
     csv = df.to_csv(index=False).encode("utf-8")
