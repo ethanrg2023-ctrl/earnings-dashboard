@@ -5,7 +5,7 @@ import plotly.graph_objs as go
 
 st.set_page_config(page_title="Trading Dashboard", layout="wide")
 
-WATCHLIST = ["CAR", "TSLA", "NVDA", "AAPL"]
+WATCHLIST = ["CAR", "TSLA", "NVDA", "AAPL", "GOLD", "SILVER", "ASX", "BHP"]
 
 st.title("📊 Earnings Momentum Dashboard")
 
