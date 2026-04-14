@@ -22,7 +22,19 @@ def get_earnings(ticker):
         return eps_est, eps_actual
     except:
         return None, None
+def get_earnings(ticker):
+    stock = yf.Ticker(ticker)
 
+    # Better fallback approach
+    try:
+        info = stock.info
+
+        eps_est = info.get("forwardEps", None)
+        eps_actual = info.get("trailingEps", None)
+
+        return eps_est, eps_actual
+    except:
+        return None, None
 def price_change(hist):
     if len(hist) < 2:
         return 0
